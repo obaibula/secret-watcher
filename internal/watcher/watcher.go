@@ -58,13 +58,14 @@ func (p *Provider) Get(secretName, key string) (string, bool) {
 }
 
 func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
+	rateLimiter := newRateLimiter(ctx)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				p.logger.Info("Stopped watch", slog.String("secret", secretName), slog.String("err", ctx.Err().Error()))
 				return
-			default:
+			case <-rateLimiter:
 				p.logger.Info("Starting watch", slog.String("secret", secretName))
 				err := p.watch(ctx, secretName)
 				if err != nil && ctx.Err() == nil {
@@ -75,6 +76,7 @@ func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
 	}()
 }
 
+// watch waits for events from k8s, on start of the watch it received watch.Added event even if secret already exists.
 func (p *Provider) watch(ctx context.Context, secretName string) error {
 	w, err := p.client.CoreV1().Secrets(p.namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", secretName),
@@ -85,10 +87,10 @@ func (p *Provider) watch(ctx context.Context, secretName string) error {
 
 	for event := range w.ResultChan() {
 
-		p.mu.Lock()
-
 		switch event.Type {
 		case watch.Added, watch.Modified:
+			p.mu.Lock()
+
 			p.logger.Info("received event for secret, updating the data", slog.String("event", string(event.Type)), slog.String("secret", secretName))
 			secret, ok := event.Object.(*corev1.Secret)
 			if !ok {
@@ -96,17 +98,21 @@ func (p *Provider) watch(ctx context.Context, secretName string) error {
 				return errors.New("event object is not secret")
 			}
 			p.dataBySecretName[secretName] = maps.Clone(secret.Data)
+
+			p.mu.Unlock()
 		case watch.Deleted:
+			p.mu.Lock()
+
 			p.logger.Info("received event for secret, cleaning the data", slog.String("event", string(watch.Deleted)), slog.String("secret", secretName))
-			p.dataBySecretName[secretName] = make(dataMap)
+			p.dataBySecretName[secretName] = nil
+
+			p.mu.Unlock()
 		case watch.Error:
-			// if the ctx cancelled, channel notifies with watch.Error immidiately
+			// if the ctx is cancelled, channel notifies with watch.Error immidiately
 			status, _ := event.Object.(*metav1.Status)
 			w.Stop()
 			return fmt.Errorf("Received error event on watch. Api status: %q, code: %d, reason: %q", status.Status, status.Code, status.Reason)
 		}
-
-		p.mu.Unlock()
 	}
 	return nil
 }
