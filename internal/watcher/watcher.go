@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"sync"
 
@@ -18,25 +19,33 @@ type (
 	dataMapBySecretNameMap = map[string]dataMap
 )
 
+type logger interface {
+	Info(msg string, args ...any)
+	Debug(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
 type Provider struct {
 	mu               *sync.RWMutex
+	logger           logger
 	client           kubernetes.Interface
 	namespace        string
 	dataBySecretName dataMapBySecretNameMap
 }
 
-func New(client kubernetes.Interface, namespace string) *Provider {
+func New(logger logger, client kubernetes.Interface, namespace string) *Provider {
 	p := &Provider{
 		mu:               &sync.RWMutex{},
+		logger:           logger,
 		client:           client,
 		namespace:        namespace,
 		dataBySecretName: make(dataMapBySecretNameMap),
 	}
-	fmt.Println("watch has started")
 	return p
 }
 
-// Get returns value from secret by key, if no key present it return to "", false
+// Get returns value from secret by key, and comma-ok bool
 func (p *Provider) Get(secretName, key string) (string, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -48,9 +57,25 @@ func (p *Provider) Get(secretName, key string) (string, bool) {
 	return string(val), ok
 }
 
-// watcher should trigger updates of the structure on different events
-// calling provided update method of an interface
-func (p *Provider) WatchForSecret(ctx context.Context, secretName string) error {
+func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				p.logger.Info("Stopped watch", slog.String("secret", secretName), slog.String("err", ctx.Err().Error()))
+				return
+			default:
+				p.logger.Info("Starting watch", slog.String("secret", secretName))
+				err := p.watch(ctx, secretName)
+				if err != nil && ctx.Err() == nil {
+					p.logger.Error("failed to watch, trying to restart", slog.String("secret", secretName), slog.String("err", err.Error()))
+				}
+			}
+		}
+	}()
+}
+
+func (p *Provider) watch(ctx context.Context, secretName string) error {
 	w, err := p.client.CoreV1().Secrets(p.namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", secretName),
 	})
@@ -59,20 +84,26 @@ func (p *Provider) WatchForSecret(ctx context.Context, secretName string) error 
 	}
 
 	for event := range w.ResultChan() {
-		secret, ok := event.Object.(*corev1.Secret)
-		if !ok {
-			return errors.New("invalid obj")
-		}
 
 		p.mu.Lock()
 
 		switch event.Type {
 		case watch.Added, watch.Modified:
+			p.logger.Info("received event for secret, updating the data", slog.String("event", string(event.Type)), slog.String("secret", secretName))
+			secret, ok := event.Object.(*corev1.Secret)
+			if !ok {
+				w.Stop()
+				return errors.New("event object is not secret")
+			}
 			p.dataBySecretName[secretName] = maps.Clone(secret.Data)
 		case watch.Deleted:
+			p.logger.Info("received event for secret, cleaning the data", slog.String("event", string(watch.Deleted)), slog.String("secret", secretName))
 			p.dataBySecretName[secretName] = make(dataMap)
 		case watch.Error:
+			// if the ctx cancelled, channel notifies with watch.Error immidiately
+			status, _ := event.Object.(*metav1.Status)
 			w.Stop()
+			return fmt.Errorf("Received error event on watch. Api status: %q, code: %d, reason: %q", status.Status, status.Code, status.Reason)
 		}
 
 		p.mu.Unlock()

@@ -1,9 +1,8 @@
 package secretwatcher
 
 import (
-	"context"
-	"fmt"
-	"time"
+	"log/slog"
+	"os"
 
 	"github.com/obaibula/secret-watcher/internal/watcher"
 	"k8s.io/client-go/kubernetes"
@@ -13,13 +12,18 @@ type SecretWatcher struct {
 	*watcher.Provider
 }
 
-func (w *SecretWatcher) SpawnWatchFor(secretName string) {
-	fmt.Println("Watching", secretName)
-	go w.WatchForSecret(context.TODO(), secretName)
-	//TODO: hm...should it be in sync? or don't bother at all as we watch secret anyway? Just do eventually in tests.
-	time.Sleep(time.Second)
+func New(client kubernetes.Interface, namespace string) *SecretWatcher {
+	defaultLogger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	return NewWithLogger(defaultLogger, client, namespace)
 }
 
-func New(client kubernetes.Interface, namespace string) *SecretWatcher {
-	return &SecretWatcher{Provider: watcher.New(client, namespace)}
+type Logger interface {
+	Info(msg string, args ...any)
+	Debug(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
+}
+
+func NewWithLogger(logger Logger, client kubernetes.Interface, namespace string) *SecretWatcher {
+	return &SecretWatcher{Provider: watcher.New(logger, client, namespace)}
 }

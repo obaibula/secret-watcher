@@ -21,7 +21,6 @@ import (
 
 const namespace = "test-ns"
 
-// TODO: can it be refactored, not using global var
 var corev1CallsCount atomic.Int32
 
 type countingClient struct {
@@ -31,6 +30,10 @@ type countingClient struct {
 func (c countingClient) CoreV1() typedcorev1.CoreV1Interface {
 	corev1CallsCount.Add(1)
 	return c.Interface.CoreV1()
+}
+
+func (c countingClient) ResetCounter() {
+	corev1CallsCount.Store(0)
 }
 
 type SecretWatcherSuite struct {
@@ -75,37 +78,79 @@ func TestSecretWatcherSuite(t *testing.T) {
 }
 
 func (s *SecretWatcherSuite) TestGet(t *testing.T) {
-	const (
-		secretName = "t-name"
-		key        = "t-key"
-		wantValue  = "t-value"
-	)
-	secret := s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+	countingClient := countingClient{Interface: s.client}
 
 	t.Run("No redundant calls to the cluster", func(t *testing.T) {
-		sw := secretwatcher.New(countingClient{Interface: s.client}, namespace)
-		sw.SpawnWatchFor(secretName)
+		const (
+			secretName = "t-name"
+			key        = "t-key"
+			wantValue  = "t-value"
+		)
 
-		gotValue, _ := sw.Get(secretName, key)
-		assert.Equal(t, wantValue, gotValue)
-		assert.Equal(t, int32(1), corev1CallsCount.Load())
+		t.Cleanup(countingClient.ResetCounter)
+		t.Cleanup(func() {
+			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+		})
 
-		gotValue, _ = sw.Get(secretName, key)
-		assert.Equal(t, wantValue, gotValue)
+		secret := s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+		sw := secretwatcher.New(countingClient, namespace)
+		sw.SpawnWatcherFor(t.Context(), secretName)
+
+		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), 30*time.Second, time.Second)
 		assert.Equal(t, int32(1), corev1CallsCount.Load())
 
 		const newWantValue = "t-new-value"
 		secret.Data[key] = []byte(newWantValue)
 		s.updateSecret(t, secret)
-
-		gotValue, _ = sw.Get(secretName, key)
-		assert.Equal(t, newWantValue, gotValue)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key, newWantValue, true), 30*time.Second, time.Second)
 		assert.Equal(t, int32(1), corev1CallsCount.Load())
 
-		gotValue, _ = sw.Get(secretName, key)
-		assert.Equal(t, newWantValue, gotValue)
+		_, _ = sw.Get(secretName, key)
 		assert.Equal(t, int32(1), corev1CallsCount.Load())
 	})
+
+	t.Run("On Create", func(t *testing.T) {
+		const (
+			secretName = "not-created-yet"
+			key        = "t-key"
+			wantValue  = "t-value"
+		)
+
+		t.Cleanup(countingClient.ResetCounter)
+		t.Cleanup(func() {
+			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+		})
+
+		sw := secretwatcher.New(countingClient, namespace)
+		sw.SpawnWatcherFor(t.Context(), secretName)
+
+		assert.Never(t, assertSecretHasValue(sw, secretName, key), 10*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+
+		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+	})
+
+	t.Run("Cleant up all unused spawns", func(t *testing.T) {
+		// TODO: this should be fulfilled
+		assert.Never(t, func() bool { return corev1CallsCount.Load() != 0 }, 10*time.Second, time.Second)
+	})
+}
+
+func assertSecretValue(sw *secretwatcher.SecretWatcher, secretName, key, wantValue string, wantOk bool) func() bool {
+	return func() bool {
+		gotValue, gotOk := sw.Get(secretName, key)
+		return wantValue == gotValue && wantOk == gotOk
+	}
+}
+
+func assertSecretHasValue(sw *secretwatcher.SecretWatcher, secretName, key string) func() bool {
+	return func() bool {
+		gotValue, gotOk := sw.Get(secretName, key)
+		return gotValue != "" || gotOk
+	}
 }
 
 func (s *SecretWatcherSuite) createSecret(t *testing.T, secretName string, data map[string][]byte) *corev1.Secret {
