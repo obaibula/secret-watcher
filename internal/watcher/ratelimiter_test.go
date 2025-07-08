@@ -29,7 +29,7 @@ func TestRateLimiter(t *testing.T) {
 	t.Log("Cancelling context")
 	cancelCtx()
 	assert.EventuallyWithT(t, func(c *assert.CollectT) { assert.Empty(t, rateLimiter) }, delta, 5*time.Millisecond)
-	// after ctx cancellation the channel must be blocker forever
+	// after ctx cancellation the channel must be drained and blocked forever
 	assert.Never(t, func() bool {
 		select {
 		case <-rateLimiter:
