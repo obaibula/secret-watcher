@@ -7,11 +7,18 @@ import (
 	"log/slog"
 	"maps"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+)
+
+const (
+	rateLimitTick       = time.Second
+	rateLimitBurst      = 3
+	rateLimitResetScale = 100
 )
 
 type (
@@ -58,7 +65,7 @@ func (p *Provider) Get(secretName, key string) (string, bool) {
 }
 
 func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
-	rateLimiter := newRateLimiter(ctx)
+	rateLimiter := newRateLimiter(ctx, rateLimitTick, rateLimitBurst)
 	go func() {
 		for {
 			select {

@@ -5,32 +5,40 @@ import (
 	"time"
 )
 
-const (
-	rateLimitTime  = time.Second
-	rateLimitBurst = 3
-)
-
 type rateLimiter chan struct{}
 
-func newRateLimiter(ctx context.Context) rateLimiter {
-	r := make(rateLimiter, rateLimitBurst)
-	r.ResetBurst()
+// newRateLimiter returns rateLimiter with set limit, tick and burst.
+// If ctx is done, rateLimiter will be drained and spawn will be stopped, so it will become ready for GC removal.
+// It must not be used after ctx cancellation.
+func newRateLimiter(ctx context.Context, tick time.Duration, burst int) rateLimiter {
+	r := make(rateLimiter, burst)
+	r.fillUpBurst()
+	r.spawnRateLimiter(ctx, tick)
+	return r
+}
 
+func (r rateLimiter) spawnRateLimiter(ctx context.Context, tick time.Duration) {
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				r.drain()
 				return
-			case <-time.Tick(rateLimitTime):
+			case <-time.Tick(tick):
 				r <- struct{}{}
 			}
 		}
 	}()
-	return r
 }
 
-func (r rateLimiter) ResetBurst() {
-	for range rateLimitBurst {
+func (r rateLimiter) fillUpBurst() {
+	for range cap(r) {
 		r <- struct{}{}
+	}
+}
+
+func (r rateLimiter) drain() {
+	for range len(r) {
+		<-r
 	}
 }
