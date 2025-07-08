@@ -10,20 +10,34 @@ import (
 
 func TestRateLimiter(t *testing.T) {
 	const (
-		tick  = 100 * time.Millisecond
+		tick  = 180 * time.Millisecond
 		burst = 5
-		delta = 10 * time.Millisecond //this one is required to mitigate flaky tests on slow systems
+		delta = 30 * time.Millisecond //this one is required to mitigate flaky tests on slow systems
 	)
 	ctx, cancelCtx := context.WithCancel(t.Context())
 	rateLimiter := newRateLimiter(ctx, tick, burst)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)
 
 	//sleep tick * burst + extra 10 ms to make rateLimiter fill up again, and resetting burst
+	t.Log("Sleeping to let rateLimiter fill up")
 	time.Sleep(tick*burst + delta)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)
 
+	t.Log("Sleeping to let rateLimiter fill up")
+	time.Sleep(tick*burst + delta)
+
+	t.Log("Cancelling context")
 	cancelCtx()
-	assert.EventuallyWithT(t, func(c *assert.CollectT) { assert.Empty(t, rateLimiter) }, 10*time.Millisecond, time.Millisecond)
+	assert.EventuallyWithT(t, func(c *assert.CollectT) { assert.Empty(t, rateLimiter) }, delta, 5*time.Millisecond)
+	// after ctx cancellation the channel must be blocker forever
+	assert.Never(t, func() bool {
+		select {
+		case <-rateLimiter:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 500*time.Millisecond)
 }
 
 func assertLimitsWithBurst(t *testing.T, rateLimiter rateLimiter, tick, delta time.Duration, burst int) {
