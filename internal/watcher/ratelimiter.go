@@ -38,7 +38,12 @@ func (r rateLimiter) fillUpBurst() {
 }
 
 func (r rateLimiter) drain() {
-	for range len(r) {
-		<-r
+	for {
+		select {
+		case <-r:
+
+		default:
+			return
+		}
 	}
 }
