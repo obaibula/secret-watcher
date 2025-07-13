@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -80,6 +81,115 @@ func TestSecretWatcherSuite(t *testing.T) {
 func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 	countingClient := countingClient{Interface: s.client}
 
+	t.Run("On Create", func(t *testing.T) {
+		const (
+			secretName = "not-created-yet"
+			key        = "t-key"
+			wantValue  = "t-value"
+		)
+
+		t.Cleanup(countingClient.ResetCounter)
+		t.Cleanup(func() {
+			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+		})
+
+		sw := secretwatcher.New(countingClient, namespace)
+		sw.SpawnWatcherFor(t.Context(), secretName)
+
+		assert.Never(t, assertSecretHasValue(sw, secretName, key), 10*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+
+		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+	})
+
+	t.Run("On Update", func(t *testing.T) {
+		const (
+			secretName = "s-n"
+			key1       = "s-k"
+			wantValue1 = "s-v"
+			key2       = "s-k-2"
+			wantValue2 = "s-v-2"
+			key3       = "s-k-3"
+			wantValue3 = "s-v-3"
+		)
+
+		t.Cleanup(countingClient.ResetCounter)
+		t.Cleanup(func() {
+			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+		})
+
+		secret := s.createSecret(t, secretName, map[string][]byte{key1: []byte(wantValue1)})
+		sw := secretwatcher.New(countingClient, namespace)
+		sw.SpawnWatcherFor(t.Context(), secretName)
+
+		assert.Eventually(t, assertSecretValue(sw, secretName, key1, wantValue1, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		const newWantValue = "t-new-value"
+		secret.Data[key1] = []byte(newWantValue)
+		secret = s.updateSecret(t, secret)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key1, newWantValue, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		secret.Data = map[string][]byte{
+			key1: []byte(wantValue1),
+			key2: []byte(wantValue2),
+			key3: []byte(wantValue3),
+		}
+		secret = s.updateSecret(t, secret)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key1, wantValue1, true), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key2, wantValue2, true), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key3, wantValue3, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		secret.Data = map[string][]byte{
+			key2: []byte(wantValue2),
+		}
+		secret = s.updateSecret(t, secret)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key1, "", false), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key2, wantValue2, true), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key3, "", false), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		secret.Data = map[string][]byte{
+			key2: {},
+			key3: []byte(""),
+		}
+		s.updateSecret(t, secret)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key1, "", false), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key2, "", true), 30*time.Second, time.Second)
+		assert.Eventually(t, assertSecretValue(sw, secretName, key3, "", true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+	})
+
+	t.Run("On Delete", func(t *testing.T) {
+		const (
+			secretName = "some-disctint-secret-name"
+			key        = "d-k"
+			wantValue  = "d-v"
+		)
+
+		t.Cleanup(countingClient.ResetCounter)
+
+		s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+		sw := secretwatcher.New(countingClient, namespace)
+		sw.SpawnWatcherFor(t.Context(), secretName)
+
+		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), 30*time.Second, time.Second)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+
+		s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+		_, err := s.client.CoreV1().Secrets(namespace).Get(s.ctx, secretName, *&metav1.GetOptions{})
+		var statusErr *k8sErrors.StatusError
+		assert.ErrorAs(t, err, &statusErr)
+		assert.Equal(t, statusErr.Status().Reason, metav1.StatusReasonNotFound)
+		assert.Contains(t, statusErr.Status().Message, secretName)
+		assert.Equal(t, int32(1), corev1CallsCount.Load())
+	})
+
 	t.Run("No redundant calls to the cluster", func(t *testing.T) {
 		const (
 			secretName = "t-name"
@@ -109,28 +219,8 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		assert.Equal(t, int32(1), corev1CallsCount.Load())
 	})
 
-	t.Run("On Create", func(t *testing.T) {
-		const (
-			secretName = "not-created-yet"
-			key        = "t-key"
-			wantValue  = "t-value"
-		)
-
-		t.Cleanup(countingClient.ResetCounter)
-		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
-		})
-
-		sw := secretwatcher.New(countingClient, namespace)
-		sw.SpawnWatcherFor(t.Context(), secretName)
-
-		assert.Never(t, assertSecretHasValue(sw, secretName, key), 10*time.Second, time.Second)
-		assert.Equal(t, int32(1), corev1CallsCount.Load())
-
-		s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
-
-		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), 30*time.Second, time.Second)
-		assert.Equal(t, int32(1), corev1CallsCount.Load())
+	t.Run("Comprehensive: multiple secrets operations", func(t *testing.T) {
+		//TODO: implement
 	})
 
 	t.Run("Cleant up all unused spawns", func(t *testing.T) {
