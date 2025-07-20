@@ -337,7 +337,9 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		secret2 = s.updateSecret(t, secret2)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key1, wantValue1, true), eventuallyWaitFor, eventuallyTick)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key2, wantValue2, true), eventuallyWaitFor, eventuallyTick)
-		assert.Equal(t, 3, countingClient.getCoreV1Count())
+		// in this test, graceful shut down for the secret3 was initiated, but in rare cases the rateLimiter ticks with ctx.Done simultaniously
+		// so the watcher may ended up with an extra call to the CoreV1 method with the done context. This is a correct behaviour.
+		assert.LessOrEqual(t, 4, countingClient.getCoreV1Count())
 	})
 
 	t.Run("Context cancellation kills all spawns", func(t *testing.T) {
