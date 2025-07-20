@@ -34,7 +34,7 @@ type SecretWatcherSuite struct {
 }
 
 func (s *SecretWatcherSuite) Setup(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 
 	k3sContainer, err := k3s.Run(ctx, "rancher/k3s:v1.27.1-k3s1")
@@ -306,7 +306,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 
 		// for the third secret create a ctx with cancel func, do cancel it prematuraly
 		secret3 := s.createSecret(t, secretName3, map[string][]byte{key3: []byte(wantValue3)})
-		secret3Ctx, cancelSecret3Ctx := context.WithCancel(t.Context())
+		secret3Ctx, cancelSecret3Ctx := context.WithCancel(context.Background())
 		t.Cleanup(cancelSecret3Ctx)
 		sw.SpawnWatcherFor(secret3Ctx, secretName3)
 
@@ -367,7 +367,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		logSpy := newLoggerSpy(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 		sw := watcher.NewWithLogger(logSpy, s.client, namespace)
 
-		ctx, cancelCtx := context.WithCancel(t.Context())
+		ctx, cancelCtx := context.WithCancel(context.Background())
 		t.Cleanup(cancelCtx)
 
 		sw.SpawnWatcherFor(ctx, secretName1)
