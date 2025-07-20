@@ -73,6 +73,10 @@ func (p *Watcher) Get(secretName, key string) (string, bool) {
 }
 
 func (p *Watcher) SpawnWatcherFor(ctx context.Context, secretName string) {
+	// rateLimiter and watcher are used with the same ctx, which cancellation will gracefully stop both
+	// in rare cases, when ctx is already cancelled, but rateLimiter has not been drained yet, we will receive from both ctx.Done and rateLimiter channels,
+	// if we fall into rateLimiter case the spawn will be gracefully shut down anyway, because the watch method shares the context and
+	// immidiately returns if ctx is Done
 	rateLimiter := ratelimiter.New(ctx, rateLimitTick, rateLimitBurst)
 	go func() {
 		for {

@@ -297,7 +297,8 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		})
 
 		secret1 := s.createSecret(t, secretName1, map[string][]byte{key1: []byte(wantValue1)})
-		sw := watcher.New(s.client, namespace)
+		countingClient := &countingClient{Interface: s.client}
+		sw := watcher.New(countingClient, namespace)
 		sw.SpawnWatcherFor(t.Context(), secretName1)
 
 		sw.SpawnWatcherFor(t.Context(), secretName2)
@@ -336,6 +337,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		secret2 = s.updateSecret(t, secret2)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key1, wantValue1, true), eventuallyWaitFor, eventuallyTick)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key2, wantValue2, true), eventuallyWaitFor, eventuallyTick)
+		assert.Equal(t, 3, countingClient.getCoreV1Count())
 	})
 
 	t.Run("Context cancellation kills all spawns", func(t *testing.T) {
