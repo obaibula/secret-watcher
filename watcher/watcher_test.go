@@ -377,6 +377,19 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 
 		cancelCtx()
 
+		const newWantValue = "t-new-value"
+		secret1.Data[key1] = []byte(newWantValue)
+		secret2.Data[key2] = []byte(newWantValue)
+		secret3.Data[key3] = []byte(newWantValue)
+		s.updateSecret(t, secret1)
+		s.updateSecret(t, secret2)
+		s.updateSecret(t, secret3)
+		assert.Never(t, func() bool {
+			return assertSecretValue(sw, secretName1, key1, newWantValue, true)() ||
+				assertSecretValue(sw, secretName2, key2, newWantValue, true)() ||
+				assertSecretValue(sw, secretName3, key3, newWantValue, true)()
+		}, neverWaitFor, neverTick)
+
 		rxStrSecret1 := "Stopped watch.*" + secretName1
 		rxSecret1, err := regexp.Compile(rxStrSecret1)
 		require.NoError(t, err)
@@ -392,18 +405,6 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Eventuallyf(t, logSpy.assertInfoContains(rxSecret3), eventuallyWaitFor, eventuallyTick, "expected stopped watch for secret %q, in: %v", secretName3, logSpy.getInfoLogs())
 
-		const newWantValue = "t-new-value"
-		secret1.Data[key1] = []byte(newWantValue)
-		secret2.Data[key2] = []byte(newWantValue)
-		secret3.Data[key3] = []byte(newWantValue)
-		s.updateSecret(t, secret1)
-		s.updateSecret(t, secret2)
-		s.updateSecret(t, secret3)
-		assert.Never(t, func() bool {
-			return assertSecretValue(sw, secretName1, key1, newWantValue, true)() ||
-				assertSecretValue(sw, secretName2, key2, newWantValue, true)() ||
-				assertSecretValue(sw, secretName3, key3, newWantValue, true)()
-		}, neverWaitFor, neverTick)
 	})
 }
 
