@@ -404,7 +404,6 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		rxSecret3, err := regexp.Compile(rxStrSecret3)
 		require.NoError(t, err)
 		assert.Eventuallyf(t, logSpy.assertInfoContains(rxSecret3), eventuallyWaitFor, eventuallyTick, "expected stopped watch for secret %q, in: %v", secretName3, logSpy.getInfoLogs())
-
 	})
 }
 
