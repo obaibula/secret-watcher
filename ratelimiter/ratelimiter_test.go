@@ -1,4 +1,4 @@
-package watcher
+package ratelimiter
 
 import (
 	"context"
@@ -15,7 +15,7 @@ func TestRateLimiter(t *testing.T) {
 		delta = 30 * time.Millisecond //this one is required to mitigate flaky tests on slow systems
 	)
 	ctx, cancelCtx := context.WithCancel(t.Context())
-	rateLimiter := newRateLimiter(ctx, tick, burst)
+	rateLimiter := New(ctx, tick, burst)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)
 
 	//sleep tick * burst + extra 10 ms to make rateLimiter fill up again, and resetting burst

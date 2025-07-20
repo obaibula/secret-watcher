@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/obaibula/secret-watcher/ratelimiter"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -26,23 +28,29 @@ type (
 	dataMapBySecretNameMap = map[string]dataMap
 )
 
-type logger interface {
+type Logger interface {
 	Info(msg string, args ...any)
 	Debug(msg string, args ...any)
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
 }
 
-type Provider struct {
+type Watcher struct {
 	mu               *sync.RWMutex
-	logger           logger
+	logger           Logger
 	client           kubernetes.Interface
 	namespace        string
 	dataBySecretName dataMapBySecretNameMap
 }
 
-func New(logger logger, client kubernetes.Interface, namespace string) *Provider {
-	p := &Provider{
+// New returns new Watcher with default slog logger implementation
+func New(client kubernetes.Interface, namespace string) *Watcher {
+	defaultLogger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	return NewWithLogger(defaultLogger, client, namespace)
+}
+
+func NewWithLogger(logger Logger, client kubernetes.Interface, namespace string) *Watcher {
+	p := &Watcher{
 		mu:               &sync.RWMutex{},
 		logger:           logger,
 		client:           client,
@@ -53,7 +61,7 @@ func New(logger logger, client kubernetes.Interface, namespace string) *Provider
 }
 
 // Get returns value from secret by key, and comma-ok bool
-func (p *Provider) Get(secretName, key string) (string, bool) {
+func (p *Watcher) Get(secretName, key string) (string, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -64,8 +72,8 @@ func (p *Provider) Get(secretName, key string) (string, bool) {
 	return string(val), ok
 }
 
-func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
-	rateLimiter := newRateLimiter(ctx, rateLimitTick, rateLimitBurst)
+func (p *Watcher) SpawnWatcherFor(ctx context.Context, secretName string) {
+	rateLimiter := ratelimiter.New(ctx, rateLimitTick, rateLimitBurst)
 	go func() {
 		for {
 			select {
@@ -84,7 +92,7 @@ func (p *Provider) SpawnWatcherFor(ctx context.Context, secretName string) {
 }
 
 // watch waits for events from k8s, on start of the watch it received watch.Added event even if secret already exists.
-func (p *Provider) watch(ctx context.Context, secretName string) error {
+func (p *Watcher) watch(ctx context.Context, secretName string) error {
 	w, err := p.client.CoreV1().Secrets(p.namespace).Watch(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", secretName),
 	})
@@ -93,7 +101,6 @@ func (p *Provider) watch(ctx context.Context, secretName string) error {
 	}
 
 	for event := range w.ResultChan() {
-
 		switch event.Type {
 		case watch.Added, watch.Modified:
 			p.mu.Lock()
