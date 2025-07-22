@@ -122,7 +122,7 @@ func (p *Watcher) watch(ctx context.Context, secretName string) error {
 			p.mu.Lock()
 
 			p.logger.Info("received event for secret, cleaning the data", slog.String("event", string(watch.Deleted)), slog.String("secret", secretName))
-			p.dataBySecretName[secretName] = nil
+			delete(p.dataBySecretName, secretName)
 
 			p.mu.Unlock()
 		case watch.Error:
