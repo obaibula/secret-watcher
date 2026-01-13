@@ -12,13 +12,13 @@ func TestRateLimiter(t *testing.T) {
 	const (
 		tick  = 180 * time.Millisecond
 		burst = 5
-		delta = 30 * time.Millisecond //this one is required to mitigate flaky tests on slow systems
+		delta = 30 * time.Millisecond // this one is required to mitigate flaky tests on slow systems
 	)
 	ctx, cancelCtx := context.WithCancel(t.Context())
 	rateLimiter := New(ctx, tick, burst)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)
 
-	//sleep tick * burst + extra 10 ms to make rateLimiter fill up again, and resetting burst
+	// sleep tick * burst + extra 10 ms to make rateLimiter fill up again, and resetting burst
 	t.Log("Sleeping to let rateLimiter fill up")
 	time.Sleep(tick*burst + delta)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)

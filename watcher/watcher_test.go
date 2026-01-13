@@ -148,7 +148,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		)
 
 		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
 		})
 
 		countingClient := &countingClient{Interface: s.client}
@@ -176,7 +176,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		)
 
 		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
 		})
 
 		secret := s.createSecret(t, secretName, map[string][]byte{key1: []byte(wantValue1)})
@@ -226,25 +226,25 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 
 	t.Run("On Delete", func(t *testing.T) {
 		const (
-			secretName = "some-disctint-secret-name"
-			key        = "d-k"
-			wantValue  = "d-v"
+			sn        = "some-disctint-secret-name"
+			key       = "d-k"
+			wantValue = "d-v"
 		)
 
-		s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
+		s.createSecret(t, sn, map[string][]byte{key: []byte(wantValue)})
 		countingClient := &countingClient{Interface: s.client}
 		sw := watcher.New(countingClient, namespace)
-		sw.SpawnWatcherFor(t.Context(), secretName)
+		sw.SpawnWatcherFor(t.Context(), sn)
 
-		assert.Eventually(t, assertSecretValue(sw, secretName, key, wantValue, true), eventuallyWaitFor, eventuallyTick)
+		assert.Eventually(t, assertSecretValue(sw, sn, key, wantValue, true), eventuallyWaitFor, eventuallyTick)
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 
-		s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
-		_, err := s.client.CoreV1().Secrets(namespace).Get(s.ctx, secretName, *&metav1.GetOptions{})
+		_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, sn, *metav1.NewDeleteOptions(0))
+		_, err := s.client.CoreV1().Secrets(namespace).Get(s.ctx, sn, metav1.GetOptions{})
 		var statusErr *k8sErrors.StatusError
 		assert.ErrorAs(t, err, &statusErr)
 		assert.Equal(t, statusErr.Status().Reason, metav1.StatusReasonNotFound)
-		assert.Contains(t, statusErr.Status().Message, secretName)
+		assert.Contains(t, statusErr.Status().Message, sn)
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 	})
 
@@ -256,7 +256,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		)
 
 		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName, *metav1.NewDeleteOptions(0))
 		})
 
 		secret := s.createSecret(t, secretName, map[string][]byte{key: []byte(wantValue)})
@@ -291,9 +291,9 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		)
 
 		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName1, *metav1.NewDeleteOptions(0))
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName2, *metav1.NewDeleteOptions(0))
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName3, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName1, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName2, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName3, *metav1.NewDeleteOptions(0))
 		})
 
 		secret1 := s.createSecret(t, secretName1, map[string][]byte{key1: []byte(wantValue1)})
@@ -304,7 +304,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		sw.SpawnWatcherFor(t.Context(), secretName2)
 		secret2 := s.createSecret(t, secretName2, map[string][]byte{key2: []byte(wantValue2)})
 
-		// for the third secret create a ctx with cancel func, do cancel it prematuraly
+		// for the third secret create a ctx with cancel func, do cancel it prematurely
 		secret3 := s.createSecret(t, secretName3, map[string][]byte{key3: []byte(wantValue3)})
 		secret3Ctx, cancelSecret3Ctx := context.WithCancel(context.Background())
 		t.Cleanup(cancelSecret3Ctx)
@@ -317,7 +317,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		// Secret3Ctx is cancelled, no changes must be recorded for this secret, other secrets should work as expected
 		cancelSecret3Ctx()
 		secret3.Data[key2] = []byte(wantValue2)
-		secret3 = s.updateSecret(t, secret3)
+		_ = s.updateSecret(t, secret3)
 		assert.Never(t, assertSecretHasValue(sw, secretName3, key2), neverWaitFor, neverTick)
 
 		secret1.Data = map[string][]byte{
@@ -325,7 +325,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 			key2: []byte(wantValue2),
 			key3: []byte(wantValue3),
 		}
-		secret1 = s.updateSecret(t, secret1)
+		_ = s.updateSecret(t, secret1)
 		assert.Eventually(t, assertSecretValue(sw, secretName1, key1, wantValue1, true), eventuallyWaitFor, eventuallyTick)
 		assert.Eventually(t, assertSecretValue(sw, secretName1, key2, wantValue2, true), eventuallyWaitFor, eventuallyTick)
 		assert.Eventually(t, assertSecretValue(sw, secretName1, key3, wantValue3, true), eventuallyWaitFor, eventuallyTick)
@@ -334,10 +334,10 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 			key1: []byte(wantValue1),
 			key2: []byte(wantValue2),
 		}
-		secret2 = s.updateSecret(t, secret2)
+		_ = s.updateSecret(t, secret2)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key1, wantValue1, true), eventuallyWaitFor, eventuallyTick)
 		assert.Eventually(t, assertSecretValue(sw, secretName2, key2, wantValue2, true), eventuallyWaitFor, eventuallyTick)
-		// in this test, graceful shut down for the secret3 was initiated, but in rare cases the rateLimiter ticks with ctx.Done simultaniously
+		// in this test, graceful shut down for the secret3 was initiated, but in rare cases the rateLimiter ticks with ctx.Done simultaneously
 		// so the watcher may ended up with an extra call to the CoreV1 method with the done context. This is a correct behaviour.
 		assert.LessOrEqual(t, countingClient.getCoreV1Count(), 4)
 	})
@@ -356,9 +356,9 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		)
 
 		t.Cleanup(func() {
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName1, *metav1.NewDeleteOptions(0))
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName2, *metav1.NewDeleteOptions(0))
-			s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName3, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName1, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName2, *metav1.NewDeleteOptions(0))
+			_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, secretName3, *metav1.NewDeleteOptions(0))
 		})
 
 		secret1 := s.createSecret(t, secretName1, map[string][]byte{key1: []byte(wantValue1)})
