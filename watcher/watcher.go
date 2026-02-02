@@ -36,11 +36,11 @@ type Logger interface {
 }
 
 type Watcher struct {
-	mu               *sync.RWMutex
-	logger           Logger
-	client           kubernetes.Interface
-	namespace        string
+	mu               sync.RWMutex
 	dataBySecretName dataMapBySecretNameMap
+	namespace        string
+	client           kubernetes.Interface
+	logger           Logger
 }
 
 // New returns new Watcher with default slog logger implementation
@@ -51,7 +51,6 @@ func New(client kubernetes.Interface, namespace string) *Watcher {
 
 func NewWithLogger(logger Logger, client kubernetes.Interface, namespace string) *Watcher {
 	p := &Watcher{
-		mu:               &sync.RWMutex{},
 		logger:           logger,
 		client:           client,
 		namespace:        namespace,
