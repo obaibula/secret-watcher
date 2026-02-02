@@ -12,7 +12,7 @@ help:
 
 # Run all tests
 test:
-	go test -v ./...
+	go test -race -v ./...
 
 # Run tests with coverage
 test-coverage:
