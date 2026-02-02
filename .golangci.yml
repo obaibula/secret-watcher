@@ -21,6 +21,7 @@ linters:
     - nilerr
     - noctx
     - nilnil
+    - wsl_v5
 
   exclusions:
     rules:

@@ -14,6 +14,7 @@ func TestRateLimiter(t *testing.T) {
 		burst = 5
 		delta = 30 * time.Millisecond // this one is required to mitigate flaky tests on slow systems
 	)
+
 	ctx, cancelCtx := context.WithCancel(t.Context())
 	rateLimiter := New(ctx, tick, burst)
 	assertLimitsWithBurst(t, rateLimiter, tick, delta, burst)
@@ -43,6 +44,7 @@ func TestRateLimiter(t *testing.T) {
 func assertLimitsWithBurst(t *testing.T, rateLimiter rateLimiter, tick, delta time.Duration, burst int) {
 	for i := range 2 * burst {
 		before := time.Now()
+
 		select {
 		case <-rateLimiter:
 			after := time.Now()

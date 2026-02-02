@@ -14,6 +14,7 @@ func New(ctx context.Context, tick time.Duration, burst int) rateLimiter {
 	r := make(rateLimiter, burst)
 	r.FillUpBurst()
 	r.spawnRateLimiter(ctx, tick)
+
 	return r
 }
 

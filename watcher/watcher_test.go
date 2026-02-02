@@ -99,10 +99,12 @@ func newLoggerSpy(logger *slog.Logger) *loggerSpy {
 func (log *loggerSpy) Info(msg string, args ...any) {
 	log.mu.Lock()
 	defer log.mu.Unlock()
+
 	log.Logger.Info(msg, args...)
 
 	// only collecting string args, to check on text presence
 	var strArgs string
+
 	for _, arg := range args {
 		switch a := arg.(type) {
 		case string:
@@ -120,6 +122,7 @@ func (log *loggerSpy) assertInfoContains(rx *regexp.Regexp) func() bool {
 	return func() bool {
 		log.mu.RLock()
 		defer log.mu.RUnlock()
+
 		return slices.ContainsFunc(log.records, rx.MatchString)
 	}
 }
@@ -127,6 +130,7 @@ func (log *loggerSpy) assertInfoContains(rx *regexp.Regexp) func() bool {
 func (log *loggerSpy) getInfoLogs() []string {
 	log.mu.RLock()
 	defer log.mu.RUnlock()
+
 	return slices.Clone(log.records)
 }
 
@@ -188,6 +192,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 
 		const newWantValue = "t-new-value"
+
 		secret.Data[key1] = []byte(newWantValue)
 		secret = s.updateSecret(t, secret)
 		assert.Eventually(t, assertSecretValue(sw, secretName, key1, newWantValue, true), eventuallyWaitFor, eventuallyTick)
@@ -241,6 +246,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 
 		_ = s.client.CoreV1().Secrets(namespace).Delete(s.ctx, sn, *metav1.NewDeleteOptions(0))
 		_, err := s.client.CoreV1().Secrets(namespace).Get(s.ctx, sn, metav1.GetOptions{})
+
 		var statusErr *k8sErrors.StatusError
 		assert.ErrorAs(t, err, &statusErr)
 		assert.Equal(t, statusErr.Status().Reason, metav1.StatusReasonNotFound)
@@ -268,12 +274,14 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 
 		const newWantValue = "t-new-value"
+
 		secret.Data[key] = []byte(newWantValue)
 		s.updateSecret(t, secret)
 		assert.Eventually(t, assertSecretValue(sw, secretName, key, newWantValue, true), eventuallyWaitFor, eventuallyTick)
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 
 		_, _ = sw.Get(secretName, key)
+
 		assert.Equal(t, 1, countingClient.getCoreV1Count())
 	})
 
@@ -316,6 +324,7 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 
 		// Secret3Ctx is cancelled, no changes must be recorded for this secret, other secrets should work as expected
 		cancelSecret3Ctx()
+
 		secret3.Data[key2] = []byte(wantValue2)
 		_ = s.updateSecret(t, secret3)
 		assert.Never(t, assertSecretHasValue(sw, secretName3, key2), neverWaitFor, neverTick)
@@ -380,9 +389,11 @@ func (s *SecretWatcherSuite) TestGet(t *testing.T) {
 		cancelCtx()
 
 		const newWantValue = "t-new-value"
+
 		secret1.Data[key1] = []byte(newWantValue)
 		secret2.Data[key2] = []byte(newWantValue)
 		secret3.Data[key3] = []byte(newWantValue)
+
 		s.updateSecret(t, secret1)
 		s.updateSecret(t, secret2)
 		s.updateSecret(t, secret3)
@@ -435,6 +446,7 @@ func (s *SecretWatcherSuite) createSecret(t *testing.T, secretName string, data 
 	}
 	secret, err := s.client.CoreV1().Secrets(namespace).Create(s.ctx, secret, metav1.CreateOptions{})
 	require.NoError(t, err)
+
 	return secret
 }
 
@@ -443,5 +455,6 @@ func (s *SecretWatcherSuite) updateSecret(t *testing.T, secret *corev1.Secret) *
 	t.Logf("Updating %q secret with data %+v", secret.Name, secret.Data)
 	secret, err := s.client.CoreV1().Secrets(namespace).Update(s.ctx, secret, metav1.UpdateOptions{})
 	require.NoError(t, err)
+
 	return secret
 }

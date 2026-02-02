@@ -56,6 +56,7 @@ func NewWithLogger(logger Logger, client kubernetes.Interface, namespace string)
 		namespace:        namespace,
 		dataBySecretName: make(dataMapBySecretNameMap),
 	}
+
 	return p
 }
 
@@ -67,7 +68,9 @@ func (p *Watcher) Get(secretName, key string) (string, bool) {
 	if p.dataBySecretName[secretName] == nil {
 		return "", false
 	}
+
 	val, ok := p.dataBySecretName[secretName][key]
+
 	return string(val), ok
 }
 
@@ -77,6 +80,7 @@ func (p *Watcher) SpawnWatcherFor(ctx context.Context, secretName string) {
 	// if we fall into rateLimiter case the spawn will be gracefully shut down anyway, because the watch method shares the context and
 	// immediately returns if ctx is Done
 	rateLimiter := ratelimiter.New(ctx, rateLimitTick, rateLimitBurst)
+
 	go func() {
 		for {
 			select {
@@ -85,6 +89,7 @@ func (p *Watcher) SpawnWatcherFor(ctx context.Context, secretName string) {
 				return
 			case <-rateLimiter:
 				p.logger.Info("Starting watch", slog.String("secret", secretName))
+
 				err := p.watch(ctx, secretName)
 				if err != nil && ctx.Err() == nil {
 					p.logger.Error("failed to watch, trying to restart", slog.String("secret", secretName), slog.String("err", err.Error()))
@@ -109,11 +114,13 @@ func (p *Watcher) watch(ctx context.Context, secretName string) error {
 			p.mu.Lock()
 
 			p.logger.Info("received event for secret, updating the data", slog.String("event", string(event.Type)), slog.String("secret", secretName))
+
 			secret, ok := event.Object.(*corev1.Secret)
 			if !ok {
 				w.Stop()
 				return errors.New("event object is not secret")
 			}
+
 			p.dataBySecretName[secretName] = maps.Clone(secret.Data)
 
 			p.mu.Unlock()
@@ -127,9 +134,12 @@ func (p *Watcher) watch(ctx context.Context, secretName string) error {
 		case watch.Error:
 			// if the ctx is cancelled, channel notifies with watch.Error immediately
 			status, _ := event.Object.(*metav1.Status)
+
 			w.Stop()
+
 			return fmt.Errorf("received error event on watch. Api status: %q, code: %d, reason: %q", status.Status, status.Code, status.Reason)
 		}
 	}
+
 	return nil
 }
